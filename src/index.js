@@ -86,21 +86,32 @@ async function main() {
     };
 
     try {
-      const sub = await getSubscription(subId);
-      const customerId = sub?.customer_id || sub?.customer?.id || sub?.customerId;
+      // Normalize subscription payload shape: { data: {...} } or bare object or stringified JSON
+      const subRaw = await getSubscription(subId);
+      const subObj = typeof subRaw === "string" ? JSON.parse(subRaw) : subRaw;
+      const sub = subObj?.data ?? subObj;
+
+      // Customer lives at data.customer.id per your sample payload
+      const customerId = sub?.customer?.id;
       if (!customerId) {
         result.status = "no-customer-on-subscription";
         return result;
       }
       result.customer_id = customerId;
 
+      // Invoices API works unversioned and may return JSON-as-string; helper already normalizes
       const invoices = await getUpcomingInvoicesForCustomer(customerId);
 
-      // try to match invoice to this subscription
+      if (!invoices || invoices.length === 0) {
+        result.status = "no-upcoming-invoice-for-subscription";
+        return result;
+      }
+
+      // Prefer an invoice that references this subscription, else take the first upcoming
       const target = invoices.find(inv => {
         const invSubId = Number(inv.subscription_id ?? inv.subscriptionId ?? inv.subscription?.id);
-        return Number(subId) === invSubId && !inv.paid && (inv.status === "upcoming" || inv.status === "Scheduled" || inv.status === "Draft" || inv.status === "Subscribed" || inv.status === "Attempting Payment");
-      }) || invoices[0]; // fallback: take first upcoming if API doesn’t echo subscription link
+        return invSubId === Number(subId);
+      }) || invoices[0];
 
       if (!target) {
         result.status = "no-upcoming-invoice-for-subscription";
