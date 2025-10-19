@@ -1,1 +1,5 @@
 run = "npm run start"
+modules = ["nodejs-20"]
+
+[agent]
+expertMode = true
